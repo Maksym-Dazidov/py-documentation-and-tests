@@ -403,7 +403,7 @@ class JwtAuthMovieApiTest(APITestCase):
         # 1. Получаем токен. Обязательно JSON формат.
         response = self.client.post(
             TOKEN_URL,
-            {"email": self.email, "password": self.password, "is_staff": True},
+            {"email": self.email, "password": self.password},
             format="json"
         )
 
