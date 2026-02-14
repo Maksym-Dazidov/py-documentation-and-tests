@@ -14,6 +14,7 @@ from cinema.serializers import MovieListSerializer, MovieDetailSerializer
 
 MOVIE_URL = reverse("cinema:movie-list")
 MOVIE_SESSION_URL = reverse("cinema:moviesession-list")
+TOKEN_URL = reverse("user:token_obtain_pair")
 
 
 def sample_movie(**params):
@@ -318,13 +319,11 @@ class AdminMovieTests(TestCase):
         self.assertIn(actor_2, actors)
         self.assertEqual(actors.count(), 2)
 
-    def test_unauthorized_user_cannot_delete_movie(self):
-        """Проверка прав: обычный пользователь не может удалить фильм"""
-        movie = Movie.objects.create(title="Safe Movie", duration=100)
+    def test_regular_user_cannot_delete_movie(self):
+        # Проверка прав доступа (permission check)
+        movie = Movie.objects.create(title="Safe", duration=100)
         url = reverse("cinema:movie-detail", args=[movie.id])
 
-        # Разлогиниваем админа и логиним обычного пользователя
-        self.client.logout()
         regular_user = get_user_model().objects.create_user("user@test.com", "pass123")
         self.client.force_authenticate(regular_user)
 
@@ -347,3 +346,76 @@ class AdminMovieTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(len(res.data), 1)
         self.assertEqual(res.data[0]["movie_title"], movie1.title)
+
+
+class MovieFilterTests(APITestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user("test@test.com", "pass123")
+        self.client.force_authenticate(self.user)
+        self.movie1 = Movie.objects.create(title="Avatar", duration=160)
+        self.movie2 = Movie.objects.create(title="Batman", duration=140)
+
+    def test_filter_movies_by_title(self):
+        res = self.client.get(reverse("cinema:movie-list"), {"title": "Avatar"})
+        # Проверяем, что вернулся только один фильм и это именно Avatar
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["title"], "Avatar")
+
+
+class MovieSessionFilterTests(APITestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user("test@test.com", "pass123")
+        self.client.force_authenticate(self.user)
+
+        movie = Movie.objects.create(title="Test Movie", duration=120)
+        hall = CinemaHall.objects.create(name="Main", rows=10, seats_in_row=10)
+
+        self.session = MovieSession.objects.create(
+            movie=movie,
+            cinema_hall=hall,
+            show_time="2026-02-15T10:00:00Z"
+        )
+
+    def test_filter_sessions_by_date(self):
+        res = self.client.get(reverse("cinema:moviesession-list"), {"date": "2026-02-15"})
+        self.assertEqual(len(res.data), 1)
+        self.assertIn("2026-02-15", res.data[0]["show_time"])
+
+    def test_filter_sessions_by_movie_id(self):
+        res = self.client.get(reverse("cinema:moviesession-list"), {"movie": self.session.movie.id})
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["movie_title"], "Test Movie")
+
+
+class JwtAuthMovieApiTest(APITestCase):
+    """Тест проверки интеграции JWT (требование ментора)"""
+
+    def setUp(self):
+        self.email = "admin@test.com"
+        self.password = "admin12345"
+        # Создаем именно суперпользователя, чтобы исключить ошибки доступа (403/401)
+        self.user = get_user_model().objects.create_superuser(
+            email=self.email,
+            password=self.password
+        )
+
+    def test_auth_with_jwt_token(self):
+        # 1. Получаем токен. Обязательно JSON формат.
+        response = self.client.post(
+            TOKEN_URL,
+            {"email": self.email, "password": self.password, "is_staff": True},
+            format="json"
+        )
+
+        # Проверяем, что логин прошел
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        access_token = response.data["access"]
+
+        # 2. Очищаем старые заголовки и ставим свежий токен
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
+
+        # 3. Делаем запрос к списку фильмов
+        res = self.client.get(MOVIE_URL)
+
+        # Теперь 100% должно быть 200
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
