@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from rest_framework.test import APIClient
+from rest_framework.test import APIClient, APITestCase
 from rest_framework import status
 
 from cinema.models import Movie, MovieSession, CinemaHall, Genre, Actor
@@ -184,7 +184,7 @@ class AuthenticatedMovieApiTest(TestCase):
         genre_1 = Genre.objects.create(name="drama")
         genre_2 = Genre.objects.create(name="poem")
         actor_1 = Actor.objects.create(first_name="Johnny", last_name="Depp")
-        actor_2 = Actor.objects.create(first_name="John",last_name="Wick")
+        actor_2 = Actor.objects.create(first_name="John", last_name="Wick")
         movie_with_genres_and_actors.genres.add(genre_1, genre_2)
         movie_with_genres_and_actors.actors.add(actor_1, actor_2)
         res = self.client.get(MOVIE_URL)
@@ -201,7 +201,7 @@ class AuthenticatedMovieApiTest(TestCase):
         genre_1 = Genre.objects.create(name="drama")
         genre_2 = Genre.objects.create(name="poem")
         actor_1 = Actor.objects.create(first_name="Johnny", last_name="Depp")
-        actor_2 = Actor.objects.create(first_name="John",last_name="Wick")
+        actor_2 = Actor.objects.create(first_name="John", last_name="Wick")
 
         movie_with_genres_and_actors_1.genres.add(genre_1)
         movie_with_genres_and_actors_1.actors.add(actor_1)
@@ -224,7 +224,7 @@ class AuthenticatedMovieApiTest(TestCase):
     def test_retrieve_movie_detail(self):
         movie = sample_movie()
         movie.genres.add(Genre.objects.create(name='drama'))
-        movie.actors.add(Actor.objects.create(first_name="John",last_name="Wick"))
+        movie.actors.add(Actor.objects.create(first_name="John", last_name="Wick"))
         url = detail_url(movie.pk)
         res = self.client.get(url)
         serializer = MovieDetailSerializer(movie)
@@ -263,11 +263,41 @@ class AdminMovieTests(TestCase):
         for key in payload:
             self.assertEqual(payload[key], getattr(movie, key))
 
+    def test_filter_movies_by_title(self):
+        movie_1 = Movie.objects.create(
+            title="Test 1",
+            description="desc",
+            duration=120,
+        )
+        movie_2 = Movie.objects.create(
+            title="Another movie",
+            description="desc",
+            duration=100,
+        )
+        movie_3 = Movie.objects.create(
+            title="Test 1 Extended",
+            description="desc",
+            duration=90,
+        )
+
+        res = self.client.get(MOVIE_URL, {"title": "Test 1"})
+
+        serializer_1 = MovieListSerializer(movie_1)
+        serializer_3 = MovieListSerializer(movie_3)
+        serializer_2 = MovieListSerializer(movie_2)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        self.assertIn(serializer_1.data, res.data)
+        self.assertIn(serializer_3.data, res.data)
+
+        self.assertNotIn(serializer_2.data, res.data)
+
     def test_create_movie_with_genres_and_actors(self):
         genre_1 = Genre.objects.create(name="drama")
         genre_2 = Genre.objects.create(name="poem")
         actor_1 = Actor.objects.create(first_name="Johnny", last_name="Depp")
-        actor_2 = Actor.objects.create(first_name="John",last_name="Wick")
+        actor_2 = Actor.objects.create(first_name="John", last_name="Wick")
         payload = {
             "title": "Test movie",
             "description": "Test description",
@@ -287,3 +317,33 @@ class AdminMovieTests(TestCase):
         self.assertIn(actor_1, actors)
         self.assertIn(actor_2, actors)
         self.assertEqual(actors.count(), 2)
+
+    def test_unauthorized_user_cannot_delete_movie(self):
+        """Проверка прав: обычный пользователь не может удалить фильм"""
+        movie = Movie.objects.create(title="Safe Movie", duration=100)
+        url = reverse("cinema:movie-detail", args=[movie.id])
+
+        # Разлогиниваем админа и логиним обычного пользователя
+        self.client.logout()
+        regular_user = get_user_model().objects.create_user("user@test.com", "pass123")
+        self.client.force_authenticate(regular_user)
+
+        res = self.client.delete(url)
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_filter_movie_sessions_by_movie(self):
+        # Создаем два разных фильма
+        movie1 = sample_movie(title="Movie 1")
+        movie2 = sample_movie(title="Movie 2")
+
+        # Создаем сеансы для этих фильмов
+        session1 = sample_movie_session(movie=movie1)
+        session2 = sample_movie_session(movie=movie2)
+
+        # Фильтруем по ID первого фильма
+        res = self.client.get(MOVIE_SESSION_URL, {"movie": movie1.id})
+
+        # Проверяем результат
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["movie_title"], movie1.title)
