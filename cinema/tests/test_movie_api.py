@@ -335,14 +335,12 @@ class AdminMovieTests(TestCase):
         movie1 = sample_movie(title="Movie 1")
         movie2 = sample_movie(title="Movie 2")
 
-        # Создаем сеансы для этих фильмов
         session1 = sample_movie_session(movie=movie1)
         session2 = sample_movie_session(movie=movie2)
 
-        # Фильтруем по ID первого фильма
+
         res = self.client.get(MOVIE_SESSION_URL, {"movie": movie1.id})
 
-        # Проверяем результат
         self.assertEqual(res.status_code, 200)
         self.assertEqual(len(res.data), 1)
         self.assertEqual(res.data[0]["movie_title"], movie1.title)
@@ -388,34 +386,27 @@ class MovieSessionFilterTests(APITestCase):
 
 
 class JwtAuthMovieApiTest(APITestCase):
-    """Тест проверки интеграции JWT (требование ментора)"""
 
     def setUp(self):
         self.email = "admin@test.com"
         self.password = "admin12345"
-        # Создаем именно суперпользователя, чтобы исключить ошибки доступа (403/401)
         self.user = get_user_model().objects.create_superuser(
             email=self.email,
             password=self.password
         )
 
     def test_auth_with_jwt_token(self):
-        # 1. Получаем токен. Обязательно JSON формат.
         response = self.client.post(
             TOKEN_URL,
             {"email": self.email, "password": self.password},
             format="json"
         )
 
-        # Проверяем, что логин прошел
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         access_token = response.data["access"]
 
-        # 2. Очищаем старые заголовки и ставим свежий токен
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
 
-        # 3. Делаем запрос к списку фильмов
         res = self.client.get(MOVIE_URL)
 
-        # Теперь 100% должно быть 200
         self.assertEqual(res.status_code, status.HTTP_200_OK)

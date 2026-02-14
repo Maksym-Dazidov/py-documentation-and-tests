@@ -166,4 +166,6 @@ SPECTACULAR_SETTINGS = {
     'TITLE': 'Cinema service',
     'DESCRIPTION': 'Order tickets for your favourite movie',
     'VERSION': '1.0.0',
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
 }
